@@ -101,8 +101,8 @@ def collate_fn(batch):
     return images, targets
 
 
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=16, collate_fn=collate_fn)
-val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=16, collate_fn=collate_fn)
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=2, collate_fn=collate_fn)
+val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=2, collate_fn=collate_fn)
 
 
 # Assuming you are using the train_loader from the previous setup
@@ -146,3 +146,60 @@ def get_model_instance_segmentation(num_classes):
 num_classes = 2
 model = get_model_instance_segmentation(num_classes)
 print(model)
+
+
+
+import torch.optim as optim
+
+# Move model to the right device
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+model.to(device)
+
+# Parameters
+params = [p for p in model.parameters() if p.requires_grad]
+optimizer = optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
+
+# Learning rate scheduler which decreases the learning rate by 10x every 3 epochs
+lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.1)
+
+
+from tqdm import tqdm
+import time
+
+def train_one_epoch(model, optimizer, data_loader, device, epoch):
+    model.train()
+    running_loss = 0.0
+    
+    # Initialize tqdm progress bar
+    prog_bar = tqdm(data_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=True)
+    
+    for images, targets in prog_bar:
+        images = list(image.to(device) for image in images)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        
+        loss_dict = model(images, targets)
+        losses = sum(loss for loss in loss_dict.values())
+        running_loss += losses.item()
+        
+        # Backpropagation
+        optimizer.zero_grad()
+        losses.backward()
+        optimizer.step()
+        
+        # Update progress bar
+        prog_bar.set_postfix(loss=running_loss/len(data_loader), epoch=epoch+1)
+    
+    avg_loss = running_loss / len(data_loader)
+    print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}")
+
+# Wrap the training process to measure time
+start_time = time.time()
+
+num_epochs = 10
+for epoch in range(num_epochs):
+    train_one_epoch(model, optimizer, train_loader, device, epoch)
+    lr_scheduler.step()
+
+elapsed_time = time.time() - start_time
+print(f"Training completed in: {time.strftime('%H:%M:%S', time.gmtime(elapsed_time))}")
+
